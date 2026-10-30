@@ -1,0 +1,48 @@
+# Observes, for each event: the event and its action; actor, triggering_actor
+# and sender; the author and author_association of the issue, comment, review
+# and pull request of the payload; comment.pin; the repository of the pull
+# request head; the pages of gollum; the label; whether the run has the secret
+# (its length only, never the value); whether the token can create a ref (the
+# ref is deleted when created). The scopes of the token are in the
+# "GITHUB_TOKEN Permissions" group of the log, and "Secret source" follows it.
+# No step checks out code and no step puts a string of the payload in a script.
+name: probe
+on:
+  gollum:
+  issues:
+    types: [opened, labeled]
+  issue_comment:
+  pull_request:
+    types: [opened, synchronize, labeled]
+  pull_request_target:
+    types: [opened, synchronize, labeled]
+  pull_request_review:
+  pull_request_review_comment:
+permissions: {}
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: observe
+        env:
+          PROBE_SECRET: ${{ secrets.PROBE_SECRET }}
+          GH_TOKEN: ${{ github.token }}
+          TRIGGERING_ACTOR: ${{ github.triggering_actor }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          e="$GITHUB_EVENT_PATH"
+          echo "probe: event=$GITHUB_EVENT_NAME action=$(jq -r '.action // ""' "$e") actor=$GITHUB_ACTOR triggering_actor=$TRIGGERING_ACTOR sender=$(jq -r '.sender.login // ""' "$e")"
+          echo "probe: payload=$(jq -c '{issue_user: .issue.user.login, issue_assoc: .issue.author_association, is_pr: (.issue.pull_request != null), comment_user: .comment.user.login, comment_assoc: .comment.author_association, pin: .comment.pin, review_user: .review.user.login, review_assoc: .review.author_association, review_state: .review.state, pr_user: .pull_request.user.login, pr_assoc: .pull_request.author_association, head_repo: .pull_request.head.repo.full_name, pages: [.pages[]? | {action, page_name, sha}], label: .label.name}' "$e")"
+          echo "probe: secret_length=${#PROBE_SECRET}"
+          sha="${BASE_SHA:-$GITHUB_SHA}"
+          ref="refs/heads/probe-w-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          code=$(curl -s -o body.json -w '%{http_code}' -X POST -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/$GITHUB_REPOSITORY/git/refs" -d "{\"ref\":\"$ref\",\"sha\":\"$sha\"}")
+          echo "probe: token_write=$code"
+          if [ "$code" = 201 ]; then
+            curl -s -o /dev/null -X DELETE -H "Authorization: Bearer $GH_TOKEN" "https://api.github.com/repos/$GITHUB_REPOSITORY/git/$ref"
+            echo "probe: ref_deleted"
+          else
+            echo "probe: token_write_body=$(head -c 200 body.json | tr -d '\n')"
+          fi

@@ -1,0 +1,19 @@
+# Leaves a log line and an artifact with a dummy text, for the check of who
+# can view the log and download the artifact. Started by workflow_dispatch;
+# the check of the roles also tries to start it from an account that should
+# not be able to.
+name: probe-artifact
+on: workflow_dispatch
+permissions: {}
+jobs:
+  upload:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          echo "probe: log-line run=$GITHUB_RUN_ID"
+          printf 'dummy artifact of run %s\n' "$GITHUB_RUN_ID" > probe-artifact.txt
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: probe-artifact
+          path: probe-artifact.txt
+          retention-days: 3

@@ -1,0 +1,37 @@
+# Observes a workflow_run run after a pull_request run of the workflow probe:
+# the event, actor and triggering_actor of the run before it, the repository
+# of its head, whether this run has the secret (its length only) and whether
+# its token can create a ref (deleted when created). Runs after other events
+# are skipped by the if of the job.
+name: probe-run
+on:
+  workflow_run:
+    workflows: [probe]
+    types: [completed]
+permissions: {}
+jobs:
+  probe:
+    if: github.event.workflow_run.event == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: observe
+        env:
+          PROBE_SECRET: ${{ secrets.PROBE_SECRET }}
+          GH_TOKEN: ${{ github.token }}
+          TRIGGERING_ACTOR: ${{ github.triggering_actor }}
+        run: |
+          e="$GITHUB_EVENT_PATH"
+          echo "probe: event=$GITHUB_EVENT_NAME actor=$GITHUB_ACTOR triggering_actor=$TRIGGERING_ACTOR"
+          echo "probe: payload=$(jq -c '.workflow_run | {event, conclusion, actor: .actor.login, triggering_actor: .triggering_actor.login, head_repository: .head_repository.full_name, head_sha}' "$e")"
+          echo "probe: secret_length=${#PROBE_SECRET}"
+          ref="refs/heads/probe-w-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          code=$(curl -s -o body.json -w '%{http_code}' -X POST -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/$GITHUB_REPOSITORY/git/refs" -d "{\"ref\":\"$ref\",\"sha\":\"$GITHUB_SHA\"}")
+          echo "probe: token_write=$code"
+          if [ "$code" = 201 ]; then
+            curl -s -o /dev/null -X DELETE -H "Authorization: Bearer $GH_TOKEN" "https://api.github.com/repos/$GITHUB_REPOSITORY/git/$ref"
+            echo "probe: ref_deleted"
+          else
+            echo "probe: token_write_body=$(head -c 200 body.json | tr -d '\n')"
+          fi
