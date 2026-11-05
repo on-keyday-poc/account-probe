@@ -1,0 +1,13 @@
+# Prints the pages of each gollum payload, with the summary, to see whether
+# the summary of a page ever holds what the editor writes. No step puts a
+# string of the payload in a script, and the job has no token scope.
+name: wiki-summary
+on: gollum
+permissions: {}
+jobs:
+  dump:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          jq -c '[.pages[] | {action, page_name, title, summary, sha}]' "$GITHUB_EVENT_PATH"
+          jq -r '.pages[].summary // "NULL"' "$GITHUB_EVENT_PATH" | od -c
